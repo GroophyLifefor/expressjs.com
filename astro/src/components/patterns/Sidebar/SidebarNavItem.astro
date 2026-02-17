@@ -65,6 +65,7 @@ const {
         data-submenu-trigger
         data-target-id={submenuId}
         data-target-level={targetLevel}
+        data-omit-from={item.omitFrom?.join(',') || undefined}
       >
         {showIcon && item.icon && (
           <div class="sidebar-nav-icon">

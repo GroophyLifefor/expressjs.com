@@ -1,11 +1,13 @@
 export class SidebarVersionManager {
   private sidebar: HTMLElement;
-  private currentVersion: string;
+  private urlVersion: string; // Version from the URL (content version)
+  private menuVersion: string; // Version selected in the menu switcher
   private activeSubmenuPath: string[];
 
   constructor(sidebar: HTMLElement, currentVersion: string, activeSubmenuPath: string[]) {
     this.sidebar = sidebar;
-    this.currentVersion = currentVersion;
+    this.urlVersion = currentVersion;
+    this.menuVersion = currentVersion;
     this.activeSubmenuPath = activeSubmenuPath;
   }
 
@@ -20,11 +22,45 @@ export class SidebarVersionManager {
         this.handleVersionChange(select.value);
       });
     });
+
+    // Listen for in-page link clicks to revert menu to URL version
+    this.setupInPageLinkListener();
+
+    // Initialize menu visibility for current URL version
+    this.updateMenuForVersion(this.urlVersion);
+  }
+
+  private setupInPageLinkListener(): void {
+    // Listen for clicks on any links in the main content area
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a');
+
+      // Check if it's a link and not in the sidebar
+      if (link && !this.sidebar.contains(link)) {
+        const href = link.getAttribute('href');
+
+        // If it's an internal link (not external, not hash-only)
+        if (href && !href.startsWith('http') && !href.startsWith('#')) {
+          // Revert menu to URL version when clicking internal links
+          this.revertToUrlVersion();
+        }
+      }
+    });
   }
 
   handleVersionChange(newVersion: string): void {
-    const previousVersion = this.currentVersion;
-    this.currentVersion = newVersion;
+    const previousVersion = this.menuVersion;
+    this.menuVersion = newVersion;
+
+    // Sync all version switchers to the same value
+    const versionSelects =
+      this.sidebar.querySelectorAll<HTMLSelectElement>('[data-version-select]');
+    versionSelects.forEach((select) => {
+      if (select.value !== newVersion) {
+        select.value = newVersion;
+      }
+    });
 
     document.dispatchEvent(
       new CustomEvent('sidebar:versionChange', {
@@ -32,82 +68,89 @@ export class SidebarVersionManager {
       })
     );
 
-    const currentPath = this.sidebar.dataset.currentPath || '';
+    // Update menu visibility based on the new version
+    this.updateMenuForVersion(newVersion);
 
-    if (currentPath.includes(`/${previousVersion}/`)) {
-      if (this.isPathOmittedForVersion(currentPath, newVersion)) {
-        const fallbackPath = this.getFirstAvailableLinkForVersion(newVersion, previousVersion);
-        if (fallbackPath) {
-          window.location.href = fallbackPath;
-          return;
-        }
+    // Update link hrefs to point to the new version
+    this.updateLinkVersions(previousVersion, newVersion);
+
+    // Update active states - remove them if menu version doesn't match URL version
+    this.updateActiveStates();
+  }
+
+  private updateMenuForVersion(version: string): void {
+    // Show/hide menu items based on omitFrom attribute
+    const allMenuItems = this.sidebar.querySelectorAll('[data-omit-from]');
+
+    allMenuItems.forEach((item) => {
+      const omitFrom = (item as HTMLElement).dataset.omitFrom?.split(',') || [];
+      const shouldHide = omitFrom.includes(version);
+
+      if (shouldHide) {
+        item.classList.add('sidebar-nav-item--hidden');
+        item.setAttribute('aria-hidden', 'true');
+      } else {
+        item.classList.remove('sidebar-nav-item--hidden');
+        item.setAttribute('aria-hidden', 'false');
       }
+    });
 
-      window.location.href = currentPath.replace(`/${previousVersion}/`, `/${newVersion}/`);
-      return;
-    }
+    // Show/hide sections based on omitFrom attribute
+    const allSections = this.sidebar.querySelectorAll('.sidebar-section[data-omit-from]');
 
-    if (this.isInVersionedSubmenu()) {
-      const fallbackPath = this.getFirstAvailableLinkForVersion(newVersion, previousVersion);
-      if (fallbackPath) {
-        window.location.href = fallbackPath;
+    allSections.forEach((section) => {
+      const omitFrom = (section as HTMLElement).dataset.omitFrom?.split(',') || [];
+      const shouldHide = omitFrom.includes(version);
+
+      if (shouldHide) {
+        section.classList.add('sidebar-section--hidden');
+        section.setAttribute('aria-hidden', 'true');
+      } else {
+        section.classList.remove('sidebar-section--hidden');
+        section.setAttribute('aria-hidden', 'false');
       }
+    });
+  }
+
+  private updateLinkVersions(previousVersion: string, newVersion: string): void {
+    // Update all versioned links to point to the new version
+    const allLinks = this.sidebar.querySelectorAll<HTMLAnchorElement>('a.sidebar-nav-item[href]');
+
+    allLinks.forEach((link) => {
+      const href = link.getAttribute('href');
+      if (href && href.includes(`/${previousVersion}/`)) {
+        const newHref = href.replace(`/${previousVersion}/`, `/${newVersion}/`);
+        link.setAttribute('href', newHref);
+      }
+    });
+  }
+
+  private updateActiveStates(): void {
+    // If menu version doesn't match URL version, remove all active states
+    const allActiveItems = this.sidebar.querySelectorAll('.sidebar-nav-item--active');
+
+    if (this.menuVersion !== this.urlVersion) {
+      allActiveItems.forEach((item) => {
+        item.classList.add('sidebar-nav-item--inactive');
+        item.classList.remove('sidebar-nav-item--active');
+      });
+    } else {
+      allActiveItems.forEach((item) => {
+        item.classList.remove('sidebar-nav-item--inactive');
+      });
     }
   }
 
-  private isInVersionedSubmenu(): boolean {
-    const activeSubmenuId = this.activeSubmenuPath[this.activeSubmenuPath.length - 1];
-    if (activeSubmenuId === 'root') return false;
-
-    const activePanel = this.sidebar.querySelector(
-      `[data-parent-id="${activeSubmenuId}"]`
-    ) as HTMLElement;
-
-    if (!activePanel) return false;
-
-    // Check if the active panel contains versioned links
-    const versionedLink = activePanel.querySelector('a[href*="/4x/"], a[href*="/5x/"]');
-    return versionedLink !== null;
-  }
-
-  private isPathOmittedForVersion(currentPath: string, targetVersion: string): boolean {
-    const activeLink = this.sidebar.querySelector(
-      'a.sidebar-nav-item--active[data-omit-from]'
-    ) as HTMLAnchorElement;
-
-    if (!activeLink) return false;
-
-    const omitFrom = activeLink.dataset.omitFrom?.split(',') || [];
-    return omitFrom.includes(targetVersion);
-  }
-
-  private getFirstAvailableLinkForVersion(
-    targetVersion: string,
-    previousVersion: string
-  ): string | null {
-    const activeSubmenuId = this.activeSubmenuPath[this.activeSubmenuPath.length - 1];
-    const activePanel = this.sidebar.querySelector(
-      `[data-parent-id="${activeSubmenuId}"]`
-    ) as HTMLElement;
-
-    if (!activePanel) return null;
-
-    const links = activePanel.querySelectorAll(
-      'a.sidebar-nav-item[href]'
-    ) as NodeListOf<HTMLAnchorElement>;
-
-    for (const link of links) {
-      const omitFrom = link.dataset.omitFrom?.split(',') || [];
-      if (!omitFrom.includes(targetVersion)) {
-        const href = link.getAttribute('href') || '';
-        if (href.includes(`/${previousVersion}/`)) {
-          return href.replace(`/${previousVersion}/`, `/${targetVersion}/`);
-        }
-        return href;
-      }
+  public revertToUrlVersion(): void {
+    // Revert menu back to URL version
+    if (this.menuVersion !== this.urlVersion) {
+      const versionSelects =
+        this.sidebar.querySelectorAll<HTMLSelectElement>('[data-version-select]');
+      versionSelects.forEach((select) => {
+        select.value = this.urlVersion;
+      });
+      this.handleVersionChange(this.urlVersion);
     }
-
-    return null;
   }
 
   updateVisibility(activeLevel: number): void {
@@ -131,7 +174,11 @@ export class SidebarVersionManager {
   }
 
   getVersion(): string {
-    return this.currentVersion;
+    return this.menuVersion;
+  }
+
+  getUrlVersion(): string {
+    return this.urlVersion;
   }
 
   setVersion(version: string): void {

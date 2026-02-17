@@ -1,7 +1,7 @@
 ---
 import type { MenuItem, VersionPrefix } from '@/config/types';
 import SidebarNavItem from './SidebarNavItem.astro';
-import { isLink, hasSubmenu, filterItems, getItemId, resolveHref, normalizePath } from './utils';
+import { isLink, hasSubmenu, getItemId, resolveHref, normalizePath } from './utils';
 
 interface Props {
   items: MenuItem[];
@@ -31,7 +31,8 @@ const {
   targetLevel,
 } = Astro.props;
 
-const filteredItems = filterItems(items, version);
+// Don't filter items server-side - render all items and filter client-side based on selected version
+const filteredItems = items;
 ---
 
 {

@@ -71,6 +71,15 @@ export class SidebarController {
       this.initialActiveSubmenuPath = [...this.activeSubmenuPath];
       this.versionManager?.updatePath(this.activeSubmenuPath);
 
+      // Check version compatibility for the active submenu
+      const activeSubmenuId = this.activeSubmenuPath[this.activeSubmenuPath.length - 1];
+      const activeSubmenuColumn = this.sidebar?.querySelector(
+        `[data-parent-id="${activeSubmenuId}"]`
+      ) as HTMLElement;
+      if (activeSubmenuColumn) {
+        this.checkVersionCompatibility(activeSubmenuColumn);
+      }
+
       if (this.navContainer) {
         this.navContainer.dataset.currentNavLevel = String(initialActiveLevel);
       }
@@ -117,6 +126,9 @@ export class SidebarController {
     this.activeLevel = level;
     this.versionManager?.updatePath(this.activeSubmenuPath);
 
+    // Check version compatibility for this submenu
+    this.checkVersionCompatibility(submenuColumn);
+
     this.updateActiveColumns();
 
     if (this.navContainer) {
@@ -127,6 +139,41 @@ export class SidebarController {
       const firstFocusable = submenuColumn.querySelector('button, a') as HTMLElement;
       firstFocusable?.focus();
     }, TRANSITION_DURATION);
+  }
+
+  private checkVersionCompatibility(submenuColumn: HTMLElement): void {
+    const supportedVersions = submenuColumn.dataset.supportedVersions?.split(',') || [];
+    const currentMenuVersion = this.versionManager?.getVersion() || '';
+    const urlVersion = this.versionManager?.getUrlVersion() || '';
+    const warningElement = submenuColumn.querySelector('[data-version-warning]') as HTMLElement;
+
+    if (!warningElement) return;
+
+    // If no versions are supported (non-versioned submenu), hide warning
+    if (supportedVersions.length === 0 || supportedVersions[0] === '') {
+      warningElement.style.display = 'none';
+      return;
+    }
+
+    // If current menu version is not supported by this submenu
+    if (!supportedVersions.includes(currentMenuVersion)) {
+      // Auto-revert to URL version if supported, otherwise to latest version
+      const targetVersion = supportedVersions.includes(urlVersion)
+        ? urlVersion
+        : supportedVersions[0]; // First version is the latest
+
+      // Only show warning if we're switching from v3
+      if (currentMenuVersion === '3x') {
+        warningElement.style.display = 'block';
+      } else {
+        warningElement.style.display = 'none';
+      }
+
+      // Auto-switch to compatible version
+      this.versionManager?.setVersion(targetVersion);
+    } else {
+      warningElement.style.display = 'none';
+    }
   }
 
   private navigateBack(): void {
